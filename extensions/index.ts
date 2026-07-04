@@ -13,18 +13,6 @@ interface CrofModel {
   };
 }
 
-const FALLBACK_MODELS: ProviderModelConfig[] = [
-  {
-    id: "crofai-default",
-    name: "CrofAI (connect via /login)",
-    reasoning: false,
-    input: ["text"] as ("text" | "image")[],
-    cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0 },
-    contextWindow: 131072,
-    maxTokens: 4096,
-  },
-];
-
 async function fetchCrofModels(apiKey: string): Promise<ProviderModelConfig[]> {
   const res = await fetch("https://crof.ai/v1/models", {
     headers: {
@@ -61,26 +49,43 @@ async function fetchCrofModels(apiKey: string): Promise<ProviderModelConfig[]> {
 }
 
 export default async function (pi: ExtensionAPI): Promise<void> {
-  // Try to fetch real models; fall back to placeholder so the provider
-  // appears in modelRegistry.getAll() and thus in /login's provider list
-  let initialModels: ProviderModelConfig[] = FALLBACK_MODELS;
+  // Pre-fetch models if CROFAI_API_KEY env var is set
+  let initialModels: ProviderModelConfig[] = [];
   const envKey = process.env.CROFAI_API_KEY;
   if (envKey) {
     try {
-      const live = await fetchCrofModels(envKey);
-      if (live.length > 0) initialModels = live;
+      initialModels = await fetchCrofModels(envKey);
     } catch {
-      // Network error — keep fallback
+      // Network error — start with empty models
     }
   }
 
   // ── Provider registration ──────────────────────────────────────────
   pi.registerProvider("CrofAI", {
-    name: "CrofAI",
     baseUrl: "https://crof.ai/v1",
     api: "openai-completions",
     authHeader: true,
-    apiKey: "$CROFAI_API_KEY",
+
+    oauth: {
+      name: "CrofAI",
+
+      login: async (callbacks) => {
+        const key = await callbacks.onPrompt({
+          message: "Enter your CrofAI API key:",
+          placeholder: "sk-crof-...",
+        });
+        return {
+          access: key,
+          refresh: key,
+          expires: Date.now() + 365 * 24 * 60 * 60 * 1000,
+        };
+      },
+
+      getApiKey: (credentials) => credentials.access,
+
+      refreshToken: async (credentials) => credentials,
+    },
+
     models: initialModels,
   });
 
@@ -94,7 +99,7 @@ export default async function (pi: ExtensionAPI): Promise<void> {
           await ctx.modelRegistry.getApiKeyForProvider("CrofAI");
         if (!apiKey) {
           ctx.ui.notify(
-            "No API key configured. Set CROFAI_API_KEY env var or run /login.",
+            "No API key configured. Run /login and select CrofAI.",
             "error",
           );
           return;
