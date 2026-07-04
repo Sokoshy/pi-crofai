@@ -1,0 +1,10 @@
+{
+  "version": "0.1.0",
+  "description": "CrofAI provider extension for Pi — dynamic model discovery, pricing, reasoning support",
+  "keywords": ["pi-package", "crofai", "provider", "llm"],
+  "author": "Sokoshy",
+  "license": "MIT",
+  "pi": {
+    "extensions": ["./extensions"]
+  }
+}
