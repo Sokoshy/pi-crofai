@@ -53,6 +53,7 @@ function crofProviderConfig(models: ProviderModelConfig[]) {
     baseUrl: "https://crof.ai/v1",
     api: "openai-completions" as const,
     authHeader: true,
+    apiKey: "$CROFAI_API_KEY",
 
     models,
   };
@@ -69,8 +70,20 @@ export default async function (pi: ExtensionAPI) {
     }
   }
 
+  const models = initialModels.length > 0
+    ? initialModels
+    : [{
+        id: "crofai",
+        name: "CrofAI",
+        reasoning: false,
+        input: ["text"] as const,
+        cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0 },
+        contextWindow: 131072,
+        maxTokens: 4096,
+      }];
+
   // ── Provider registration ──────────────────────────────────────────
-  pi.registerProvider("CrofAI", crofProviderConfig(initialModels));
+  pi.registerProvider("CrofAI", crofProviderConfig(models));
 
   // ── Command registration ───────────────────────────────────────────
   pi.registerCommand("refresh-crof", {
