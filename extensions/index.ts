@@ -109,7 +109,11 @@ export default async function (pi: ExtensionAPI): Promise<void> {
           ctx.ui.notify("No models returned from API. Check your API key.", "error");
           return;
         }
-        pi.registerProvider("CrofAI", { models });
+        pi.registerProvider("CrofAI", {
+          baseUrl: "https://crof.ai/v1",
+          api: "openai-completions",
+          models,
+        });
         ctx.ui.notify("CrofAI models refreshed!", "info");
       } catch (err) {
         ctx.ui.notify(
