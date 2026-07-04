@@ -48,6 +48,38 @@ async function fetchCrofModels(apiKey: string): Promise<ProviderModelConfig[]> {
   );
 }
 
+function crofProviderConfig(models: ProviderModelConfig[]) {
+  return {
+    baseUrl: "https://crof.ai/v1",
+    api: "openai-completions" as const,
+    authHeader: true,
+
+    oauth: {
+      name: "CrofAI",
+
+      login: async (callbacks: {
+        onPrompt: (opts: { message: string; placeholder?: string }) => Promise<string>;
+      }) => {
+        const key = await callbacks.onPrompt({
+          message: "Enter your CrofAI API key:",
+          placeholder: "sk-crof-...",
+        });
+        return {
+          access: key,
+          refresh: key,
+          expires: Date.now() + 365 * 24 * 60 * 60 * 1000,
+        };
+      },
+
+      getApiKey: (credentials: { access: string }) => credentials.access,
+
+      refreshToken: async (credentials: { access: string }) => credentials,
+    },
+
+    models,
+  };
+}
+
 export default async function (pi: ExtensionAPI): Promise<void> {
   // Pre-fetch models if CROFAI_API_KEY env var is set
   let initialModels: ProviderModelConfig[] = [];
@@ -61,33 +93,7 @@ export default async function (pi: ExtensionAPI): Promise<void> {
   }
 
   // ── Provider registration ──────────────────────────────────────────
-  pi.registerProvider("CrofAI", {
-    baseUrl: "https://crof.ai/v1",
-    api: "openai-completions",
-    authHeader: true,
-
-    oauth: {
-      name: "CrofAI",
-
-      login: async (callbacks) => {
-        const key = await callbacks.onPrompt({
-          message: "Enter your CrofAI API key:",
-          placeholder: "sk-crof-...",
-        });
-        return {
-          access: key,
-          refresh: key,
-          expires: Date.now() + 365 * 24 * 60 * 60 * 1000,
-        };
-      },
-
-      getApiKey: (credentials) => credentials.access,
-
-      refreshToken: async (credentials) => credentials,
-    },
-
-    models: initialModels,
-  });
+  pi.registerProvider("CrofAI", crofProviderConfig(initialModels));
 
   // ── Command registration ───────────────────────────────────────────
   pi.registerCommand("refresh-crof", {
@@ -95,8 +101,7 @@ export default async function (pi: ExtensionAPI): Promise<void> {
     handler: async (_args: string, ctx) => {
       ctx.ui.notify("Refreshing CrofAI models...", "info");
       try {
-        const apiKey =
-          await ctx.modelRegistry.getApiKeyForProvider("CrofAI");
+        const apiKey = await ctx.modelRegistry.getApiKeyForProvider("CrofAI");
         if (!apiKey) {
           ctx.ui.notify(
             "No API key configured. Run /login and select CrofAI.",
@@ -109,11 +114,7 @@ export default async function (pi: ExtensionAPI): Promise<void> {
           ctx.ui.notify("No models returned from API. Check your API key.", "error");
           return;
         }
-        pi.registerProvider("CrofAI", {
-          baseUrl: "https://crof.ai/v1",
-          api: "openai-completions",
-          models,
-        });
+        pi.registerProvider("CrofAI", crofProviderConfig(models));
         ctx.ui.notify("CrofAI models refreshed!", "info");
       } catch (err) {
         ctx.ui.notify(
