@@ -37,9 +37,9 @@ async function fetchCrofModels(apiKey: string): Promise<ProviderModelConfig[]> {
       reasoning: !!m.reasoning_effort,
       input: ["text"] as ("text" | "image")[],
       cost: {
-        input: parseFloat(m.pricing?.prompt ?? "0") || 0,
-        output: parseFloat(m.pricing?.completion ?? "0") || 0,
-        cacheRead: parseFloat(m.pricing?.cache_prompt ?? "0") || 0,
+        input: +(m.pricing?.prompt ?? 0) || 0,
+        output: +(m.pricing?.completion ?? 0) || 0,
+        cacheRead: +(m.pricing?.cache_prompt ?? 0) || 0,
         cacheWrite: 0,
       },
       contextWindow: m.context_length ?? 131072,
@@ -54,33 +54,10 @@ function crofProviderConfig(models: ProviderModelConfig[]) {
     api: "openai-completions" as const,
     authHeader: true,
 
-    oauth: {
-      name: "CrofAI",
-
-      login: async (callbacks: {
-        onPrompt: (opts: { message: string; placeholder?: string }) => Promise<string>;
-      }) => {
-        const key = await callbacks.onPrompt({
-          message: "Enter your CrofAI API key:",
-          placeholder: "sk-crof-...",
-        });
-        return {
-          access: key,
-          refresh: key,
-          expires: Date.now() + 365 * 24 * 60 * 60 * 1000,
-        };
-      },
-
-      getApiKey: (credentials: { access: string }) => credentials.access,
-
-      refreshToken: async (credentials: { access: string }) => credentials,
-    },
-
     models,
   };
 }
-
-export default async function (pi: ExtensionAPI): Promise<void> {
+export default async function (pi: ExtensionAPI) {
   // Pre-fetch models if CROFAI_API_KEY env var is set
   let initialModels: ProviderModelConfig[] = [];
   const envKey = process.env.CROFAI_API_KEY;
