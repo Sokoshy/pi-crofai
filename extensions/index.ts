@@ -58,76 +58,73 @@ function crofProviderConfig(models: ProviderModelConfig[]) {
     models,
   };
 }
+
+async function registerModels(
+  pi: ExtensionAPI,
+  apiKey: string,
+  ctx?: { ui: { notify: (msg: string, type: string) => void } },
+): Promise<void> {
+  const models = await fetchCrofModels(apiKey);
+  if (models.length === 0) {
+    ctx?.ui.notify("No models returned from API. Check your API key.", "error");
+    return;
+  }
+  pi.registerProvider("CrofAI", crofProviderConfig(models));
+  ctx?.ui.notify(`CrofAI: ${models.length} models loaded!`, "info");
+}
+
 export default async function (pi: ExtensionAPI) {
   // Pre-fetch models if CROFAI_API_KEY env var is set
-  let initialModels: ProviderModelConfig[] = [];
   const envKey = process.env.CROFAI_API_KEY;
   if (envKey) {
     try {
-      initialModels = await fetchCrofModels(envKey);
+      await registerModels(pi, envKey);
     } catch {
-      // Network error — start with empty models
+      // Network error — user can run /login-crofai
     }
+  } else {
+    // Register with no models — provider exists but invisible until login
+    pi.registerProvider("CrofAI", crofProviderConfig([]));
   }
 
-  const models = initialModels.length > 0
-    ? initialModels
-    : [{
-        id: "crofai",
-        name: "CrofAI",
-        reasoning: false,
-        input: ["text"] as const,
-        cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0 },
-        contextWindow: 131072,
-        maxTokens: 4096,
-      }];
+  // ── Commands ────────────────────────────────────────────────────────
 
-  // ── Provider registration ──────────────────────────────────────────
-  pi.registerProvider("CrofAI", crofProviderConfig(models));
+  pi.registerCommand("login-crofai", {
+    description: "Enter your CrofAI API key and load models",
+    handler: async (_args: string, ctx) => {
+      const apiKey = await ctx.ui.input("Enter your CrofAI API key:", "sk-crof-...");
+      if (!apiKey?.trim()) return;
 
-  // Auto-fetch real models after login (model_select fires when Pi selects a model post-login)
-  pi.on("model_select", async (event, ctx) => {
-    if (event.model.provider !== "CrofAI") return;
-    // Skip if real models already loaded
-    const allModels = ctx.modelRegistry.getAll();
-    const hasReal = allModels.some(m => m.provider === "CrofAI" && m.id !== "crofai");
-    if (hasReal) return;
-
-    const apiKey = await ctx.modelRegistry.getApiKeyForProvider("CrofAI");
-    if (!apiKey) return;
-
-    try {
-      const models = await fetchCrofModels(apiKey);
-      if (models.length > 0) {
-        pi.registerProvider("CrofAI", crofProviderConfig(models));
-        ctx.ui.notify("CrofAI models loaded from API!", "info");
+      try {
+        // Store key so API calls use it (authHeader: true sends Authorization)
+        ctx.modelRegistry.authStorage.set("CrofAI", {
+          type: "api_key" as const,
+          key: apiKey.trim(),
+        });
+        await registerModels(pi, apiKey.trim(), ctx.ui);
+      } catch (err) {
+        ctx.ui.notify(
+          `Failed: ${err instanceof Error ? err.message : String(err)}`,
+          "error",
+        );
       }
-    } catch {
-      // Network error — user can run /refresh-crof manually
-    }
+    },
   });
 
-  // ── Command registration ───────────────────────────────────────────
   pi.registerCommand("refresh-crof", {
-    description: "Force refresh CrofAI models from the API (bypass 24h cache)",
+    description: "Refresh CrofAI models from the API",
     handler: async (_args: string, ctx) => {
+      const apiKey = await ctx.modelRegistry.getApiKeyForProvider("CrofAI");
+      if (!apiKey) {
+        ctx.ui.notify(
+          "No API key. Run /login-crofai first.",
+          "error",
+        );
+        return;
+      }
       ctx.ui.notify("Refreshing CrofAI models...", "info");
       try {
-        const apiKey = await ctx.modelRegistry.getApiKeyForProvider("CrofAI");
-        if (!apiKey) {
-          ctx.ui.notify(
-            "No API key configured. Run /login and select CrofAI.",
-            "error",
-          );
-          return;
-        }
-        const models = await fetchCrofModels(apiKey);
-        if (models.length === 0) {
-          ctx.ui.notify("No models returned from API. Check your API key.", "error");
-          return;
-        }
-        pi.registerProvider("CrofAI", crofProviderConfig(models));
-        ctx.ui.notify("CrofAI models refreshed!", "info");
+        await registerModels(pi, apiKey, ctx.ui);
       } catch (err) {
         ctx.ui.notify(
           `Refresh failed: ${err instanceof Error ? err.message : String(err)}`,
