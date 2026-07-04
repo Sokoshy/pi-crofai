@@ -13,6 +13,18 @@ interface CrofModel {
   };
 }
 
+const FALLBACK_MODELS: ProviderModelConfig[] = [
+  {
+    id: "crofai-default",
+    name: "CrofAI (connect via /login)",
+    reasoning: false,
+    input: ["text"] as ("text" | "image")[],
+    cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0 },
+    contextWindow: 131072,
+    maxTokens: 4096,
+  },
+];
+
 async function fetchCrofModels(apiKey: string): Promise<ProviderModelConfig[]> {
   const res = await fetch("https://crof.ai/v1/models", {
     headers: {
@@ -49,14 +61,16 @@ async function fetchCrofModels(apiKey: string): Promise<ProviderModelConfig[]> {
 }
 
 export default async function (pi: ExtensionAPI): Promise<void> {
-  // Pre-fetch models if CROFAI_API_KEY env var is set
-  let initialModels: ProviderModelConfig[] = [];
+  // Try to fetch real models; fall back to placeholder so the provider
+  // appears in modelRegistry.getAll() and thus in /login's provider list
+  let initialModels: ProviderModelConfig[] = FALLBACK_MODELS;
   const envKey = process.env.CROFAI_API_KEY;
   if (envKey) {
     try {
-      initialModels = await fetchCrofModels(envKey);
+      const live = await fetchCrofModels(envKey);
+      if (live.length > 0) initialModels = live;
     } catch {
-      // Network error — start with empty models
+      // Network error — keep fallback
     }
   }
 
