@@ -7,7 +7,7 @@ Dynamically discovers models and pricing from [crof.ai](https://crof.ai/), suppo
 ## Install
 
 ```bash
-pi install git:github.com/<user>/pi-crofai
+pi install git:github.com/Sokoshy/pi-crofai
 ```
 
 ## Uninstall
