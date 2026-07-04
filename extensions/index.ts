@@ -9,18 +9,29 @@ import type {
 
 const CACHE_PATH = join(homedir(), ".pi", "crofai-models.json");
 const CACHE_TTL_MS = 24 * 60 * 60 * 1000;
+const MODELS_DEV_URL = "https://models.dev/api.json";
+
+type ThinkingLevelMap = NonNullable<ProviderModelConfig["thinkingLevelMap"]>;
 
 interface CrofModel {
   id: string;
   name?: string;
   context_length?: number;
   max_completion_tokens?: number;
+  custom_reasoning?: boolean;
   reasoning_effort?: boolean;
   pricing?: {
     prompt?: string;
     completion?: string;
     cache_prompt?: string;
   };
+}
+
+interface ModelsDevModel {
+  id?: string;
+  name?: string;
+  reasoning?: boolean;
+  reasoning_options?: Array<{ type?: string; values?: string[] }>;
 }
 
 interface ModelCache {
@@ -44,6 +55,73 @@ async function writeCache(models: ProviderModelConfig[]): Promise<void> {
   await writeFile(CACHE_PATH, JSON.stringify({ fetchedAt: Date.now(), models }, null, 2));
 }
 
+function parseCrofPrice(price: string | undefined): number {
+  const value = +(price ?? 0);
+  return Number.isFinite(value) ? value / 1_000_000 : 0;
+}
+
+function isLikelyReasoningModel(id: string, name: string): boolean {
+  const text = `${id} ${name}`.toLowerCase();
+  return ["deepseek", "minimax", "mimo", "xiaomi", "kimi", "qwen3", "thinking", "reasoning", "reasoner", "r1", "qwq"].some((s) => text.includes(s));
+}
+
+function thinkingMapFromModelsDev(model?: ModelsDevModel): ThinkingLevelMap | undefined {
+  const effort = model?.reasoning_options?.find((option) => option.type === "effort");
+  if (!effort?.values?.length) return undefined;
+
+  const values = new Set(effort.values);
+  return {
+    off: values.has("none") ? "none" : null,
+    minimal: values.has("minimal") ? "minimal" : null,
+    low: values.has("low") ? "low" : null,
+    medium: values.has("medium") ? "medium" : null,
+    high: values.has("high") ? "high" : null,
+    xhigh: values.has("xhigh") ? "xhigh" : values.has("max") ? "max" : null,
+  };
+}
+
+async function fetchModelsDev(): Promise<Map<string, ModelsDevModel>> {
+  try {
+    const res = await fetch(MODELS_DEV_URL);
+    if (!res.ok) return new Map();
+    const catalog = await res.json() as Record<string, { models?: Record<string, ModelsDevModel> }>;
+    const index = new Map<string, ModelsDevModel>();
+    for (const provider of Object.values(catalog)) {
+      for (const [key, model] of Object.entries(provider.models ?? {})) {
+        for (const id of [key, model.id, key.split("/").pop()]) {
+          if (id) index.set(id.toLowerCase().replace(/^~/, "").replace(/:free$|-free$/, ""), model);
+        }
+      }
+    }
+    return index;
+  } catch {
+    return new Map();
+  }
+}
+
+function getProxyCompat(id: string, name: string): ProviderModelConfig["compat"] | undefined {
+  const text = `${id} ${name}`.toLowerCase();
+  const isDeepSeek = text.includes("deepseek") || id.includes("qwen3.7") || id.includes("qwen3-7");
+  if (isDeepSeek) {
+    return {
+      supportsStore: false,
+      supportsDeveloperRole: false,
+      supportsReasoningEffort: true,
+      requiresReasoningContentOnAssistantMessages: true,
+      thinkingFormat: "deepseek",
+    };
+  }
+  if (text.includes("kimi") || text.includes("mimo") || text.includes("xiaomi")) {
+    return {
+      supportsStore: false,
+      supportsDeveloperRole: false,
+      supportsReasoningEffort: true,
+      requiresReasoningContentOnAssistantMessages: true,
+    };
+  }
+  return undefined;
+}
+
 async function fetchCrofModels(apiKey: string): Promise<ProviderModelConfig[]> {
   const res = await fetch("https://crof.ai/v1/models", {
     headers: {
@@ -61,22 +139,30 @@ async function fetchCrofModels(apiKey: string): Promise<ProviderModelConfig[]> {
   }
   if (!Array.isArray(body.data)) return [];
 
-  return body.data.map(
-    (m): ProviderModelConfig => ({
+  const meta = await fetchModelsDev();
+  return body.data.map((m): ProviderModelConfig => {
+    const name = m.name ?? m.id;
+    const modelMeta = meta.get(m.id.toLowerCase());
+    const thinkingLevelMap = thinkingMapFromModelsDev(modelMeta);
+    const compat = getProxyCompat(m.id, name);
+
+    return {
       id: m.id,
-      name: m.name ?? m.id,
-      reasoning: !!m.reasoning_effort,
+      name,
+      reasoning: m.custom_reasoning ?? modelMeta?.reasoning ?? isLikelyReasoningModel(m.id, name),
+      ...(thinkingLevelMap ? { thinkingLevelMap } : {}),
       input: ["text"] as ("text" | "image")[],
       cost: {
-        input: +(m.pricing?.prompt ?? 0) || 0,
-        output: +(m.pricing?.completion ?? 0) || 0,
-        cacheRead: +(m.pricing?.cache_prompt ?? 0) || 0,
+        input: parseCrofPrice(m.pricing?.prompt),
+        output: parseCrofPrice(m.pricing?.completion),
+        cacheRead: parseCrofPrice(m.pricing?.cache_prompt),
         cacheWrite: 0,
       },
       contextWindow: m.context_length ?? 131072,
       maxTokens: m.max_completion_tokens ?? 4096,
-    }),
-  );
+      ...(compat ? { compat } : {}),
+    };
+  });
 }
 
 function crofProviderConfig(models: ProviderModelConfig[]) {
