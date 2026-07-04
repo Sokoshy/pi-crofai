@@ -62,15 +62,15 @@ function crofProviderConfig(models: ProviderModelConfig[]) {
 async function registerModels(
   pi: ExtensionAPI,
   apiKey: string,
-  ctx?: { ui: { notify: (msg: string, type: string) => void } },
+  notify?: (msg: string, type: string) => void,
 ): Promise<void> {
   const models = await fetchCrofModels(apiKey);
   if (models.length === 0) {
-    ctx?.ui.notify("No models returned from API. Check your API key.", "error");
+    notify?.("No models returned from API. Check your API key.", "error");
     return;
   }
   pi.registerProvider("CrofAI", crofProviderConfig(models));
-  ctx?.ui.notify(`CrofAI: ${models.length} models loaded!`, "info");
+  notify?.(`CrofAI: ${models.length} models loaded!`, "info");
 }
 
 export default async function (pi: ExtensionAPI) {
@@ -101,7 +101,7 @@ export default async function (pi: ExtensionAPI) {
           type: "api_key" as const,
           key: apiKey.trim(),
         });
-        await registerModels(pi, apiKey.trim(), ctx.ui);
+        await registerModels(pi, apiKey.trim(), ctx.ui.notify);
       } catch (err) {
         ctx.ui.notify(
           `Failed: ${err instanceof Error ? err.message : String(err)}`,
@@ -124,7 +124,7 @@ export default async function (pi: ExtensionAPI) {
       }
       ctx.ui.notify("Refreshing CrofAI models...", "info");
       try {
-        await registerModels(pi, apiKey, ctx.ui);
+        await registerModels(pi, apiKey, ctx.ui.notify);
       } catch (err) {
         ctx.ui.notify(
           `Refresh failed: ${err instanceof Error ? err.message : String(err)}`,
