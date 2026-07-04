@@ -1,4 +1,14 @@
-import type { ExtensionAPI, ProviderModelConfig } from "@earendil-works/pi-coding-agent";
+import { mkdir, readFile, writeFile } from "node:fs/promises";
+import { homedir } from "node:os";
+import { dirname, join } from "node:path";
+import type {
+  ExtensionAPI,
+  ExtensionCommandContext,
+  ProviderModelConfig,
+} from "@earendil-works/pi-coding-agent";
+
+const CACHE_PATH = join(homedir(), ".pi", "crofai-models.json");
+const CACHE_TTL_MS = 24 * 60 * 60 * 1000;
 
 interface CrofModel {
   id: string;
@@ -11,6 +21,27 @@ interface CrofModel {
     completion?: string;
     cache_prompt?: string;
   };
+}
+
+interface ModelCache {
+  fetchedAt: number;
+  models: ProviderModelConfig[];
+}
+
+async function readCache(): Promise<ModelCache | undefined> {
+  try {
+    const cache = JSON.parse(await readFile(CACHE_PATH, "utf8")) as ModelCache;
+    return Array.isArray(cache.models) && typeof cache.fetchedAt === "number"
+      ? cache
+      : undefined;
+  } catch {
+    return undefined;
+  }
+}
+
+async function writeCache(models: ProviderModelConfig[]): Promise<void> {
+  await mkdir(dirname(CACHE_PATH), { recursive: true });
+  await writeFile(CACHE_PATH, JSON.stringify({ fetchedAt: Date.now(), models }, null, 2));
 }
 
 async function fetchCrofModels(apiKey: string): Promise<ProviderModelConfig[]> {
@@ -70,45 +101,66 @@ async function registerModels(
     return;
   }
   pi.registerProvider("CrofAI", crofProviderConfig(models));
+  await writeCache(models);
   notify?.(`CrofAI: ${models.length} models loaded!`, "info");
 }
 
+async function loginCrofai(pi: ExtensionAPI, ctx: ExtensionCommandContext) {
+  const apiKey = await ctx.ui.input("Enter your CrofAI API key:", "sk-crof-...");
+  if (!apiKey?.trim()) return;
+
+  try {
+    ctx.modelRegistry.authStorage.set("CrofAI", {
+      type: "api_key" as const,
+      key: apiKey.trim(),
+    });
+    await registerModels(pi, apiKey.trim(), ctx.ui.notify);
+  } catch (err) {
+    ctx.ui.notify(
+      `Failed: ${err instanceof Error ? err.message : String(err)}`,
+      "error",
+    );
+  }
+}
+
 export default async function (pi: ExtensionAPI) {
-  // Pre-fetch models if CROFAI_API_KEY env var is set
+  const cache = await readCache();
+  pi.registerProvider("CrofAI", crofProviderConfig(cache?.models ?? []));
+
+  const shouldRefresh = !cache || Date.now() - cache.fetchedAt > CACHE_TTL_MS;
   const envKey = process.env.CROFAI_API_KEY;
-  if (envKey) {
+  if (envKey && shouldRefresh) {
     try {
       await registerModels(pi, envKey);
     } catch {
-      // Network error — user can run /login-crofai
+      // Network error — keep cached models
     }
-  } else {
-    // Register with no models — provider exists but invisible until login
-    pi.registerProvider("CrofAI", crofProviderConfig([]));
   }
+
+  pi.on("session_start", async (_event, ctx) => {
+    const cache = await readCache();
+    if (cache && Date.now() - cache.fetchedAt <= CACHE_TTL_MS) return;
+
+    const apiKey = await ctx.modelRegistry.getApiKeyForProvider("CrofAI");
+    if (!apiKey) return;
+
+    try {
+      await registerModels(pi, apiKey);
+    } catch {
+      // Network error — keep cached models
+    }
+  });
 
   // ── Commands ────────────────────────────────────────────────────────
 
   pi.registerCommand("login-crofai", {
     description: "Enter your CrofAI API key and load models",
-    handler: async (_args: string, ctx) => {
-      const apiKey = await ctx.ui.input("Enter your CrofAI API key:", "sk-crof-...");
-      if (!apiKey?.trim()) return;
+    handler: async (_args: string, ctx) => loginCrofai(pi, ctx),
+  });
 
-      try {
-        // Store key so API calls use it (authHeader: true sends Authorization)
-        ctx.modelRegistry.authStorage.set("CrofAI", {
-          type: "api_key" as const,
-          key: apiKey.trim(),
-        });
-        await registerModels(pi, apiKey.trim(), ctx.ui.notify);
-      } catch (err) {
-        ctx.ui.notify(
-          `Failed: ${err instanceof Error ? err.message : String(err)}`,
-          "error",
-        );
-      }
-    },
+  pi.registerCommand("login-crof-ai", {
+    description: "Alias for /login-crofai",
+    handler: async (_args: string, ctx) => loginCrofai(pi, ctx),
   });
 
   pi.registerCommand("refresh-crof", {
