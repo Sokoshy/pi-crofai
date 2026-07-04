@@ -244,10 +244,6 @@ export default async function (pi: ExtensionAPI) {
     handler: async (_args: string, ctx) => loginCrofai(pi, ctx),
   });
 
-  pi.registerCommand("login-crof-ai", {
-    description: "Alias for /login-crofai",
-    handler: async (_args: string, ctx) => loginCrofai(pi, ctx),
-  });
 
   pi.registerCommand("refresh-crof", {
     description: "Refresh CrofAI models from the API",
