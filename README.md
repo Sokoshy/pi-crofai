@@ -13,9 +13,8 @@ pi install git:github.com/Sokoshy/pi-crofai
 ## Uninstall
 
 ```bash
-pi uninstall pi-crofai
+pi remove git:github.com/Sokoshy/pi-crofai
 ```
-
 ## Configuration
 
 1. Set `CROFAI_API_KEY` environment variable, or
