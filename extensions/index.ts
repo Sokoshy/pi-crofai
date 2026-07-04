@@ -62,33 +62,11 @@ export default async function (pi: ExtensionAPI): Promise<void> {
 
   // ── Provider registration ──────────────────────────────────────────
   pi.registerProvider("CrofAI", {
+    name: "CrofAI",
     baseUrl: "https://crof.ai/v1",
     api: "openai-completions",
     authHeader: true,
-
-    oauth: {
-      name: "CrofAI",
-
-      login: async (callbacks) => {
-        const key = await callbacks.onPrompt({
-          message: "Enter your CrofAI API key:",
-          placeholder: "sk-crof-...",
-        });
-        return {
-          access: key,
-          refresh: key,
-          expires: Date.now() + 365 * 24 * 60 * 60 * 1000, // ~1 year
-        };
-      },
-
-      getApiKey: (credentials) => credentials.access,
-
-      refreshToken: async (credentials) => {
-        // API keys don't expire — return as-is
-        return credentials;
-      },
-    },
-
+    apiKey: "$CROFAI_API_KEY",
     models: initialModels,
   });
 
@@ -102,7 +80,7 @@ export default async function (pi: ExtensionAPI): Promise<void> {
           await ctx.modelRegistry.getApiKeyForProvider("CrofAI");
         if (!apiKey) {
           ctx.ui.notify(
-            "No API key configured. Run /login and select CrofAI.",
+            "No API key configured. Set CROFAI_API_KEY env var or run /login.",
             "error",
           );
           return;
@@ -112,7 +90,6 @@ export default async function (pi: ExtensionAPI): Promise<void> {
           ctx.ui.notify("No models returned from API. Check your API key.", "error");
           return;
         }
-        // Replace models, keeping existing baseUrl/api/authHeader/oauth
         pi.registerProvider("CrofAI", { models });
         ctx.ui.notify("CrofAI models refreshed!", "info");
       } catch (err) {
