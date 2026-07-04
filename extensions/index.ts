@@ -85,6 +85,28 @@ export default async function (pi: ExtensionAPI) {
   // ── Provider registration ──────────────────────────────────────────
   pi.registerProvider("CrofAI", crofProviderConfig(models));
 
+  // Auto-fetch real models after login (model_select fires when Pi selects a model post-login)
+  pi.on("model_select", async (event, ctx) => {
+    if (event.model.provider !== "CrofAI") return;
+    // Skip if real models already loaded
+    const allModels = ctx.modelRegistry.getAll();
+    const hasReal = allModels.some(m => m.provider === "CrofAI" && m.id !== "crofai");
+    if (hasReal) return;
+
+    const apiKey = await ctx.modelRegistry.getApiKeyForProvider("CrofAI");
+    if (!apiKey) return;
+
+    try {
+      const models = await fetchCrofModels(apiKey);
+      if (models.length > 0) {
+        pi.registerProvider("CrofAI", crofProviderConfig(models));
+        ctx.ui.notify("CrofAI models loaded from API!", "info");
+      }
+    } catch {
+      // Network error — user can run /refresh-crof manually
+    }
+  });
+
   // ── Command registration ───────────────────────────────────────────
   pi.registerCommand("refresh-crof", {
     description: "Force refresh CrofAI models from the API (bypass 24h cache)",
