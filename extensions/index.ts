@@ -57,7 +57,7 @@ async function writeCache(models: ProviderModelConfig[]): Promise<void> {
 
 function parseCrofPrice(price: string | undefined): number {
   const value = +(price ?? 0);
-  return Number.isFinite(value) ? value / 1_000_000 : 0;
+  return Number.isFinite(value) ? value : 0;
 }
 
 function isLikelyReasoningModel(id: string, name: string): boolean {
@@ -101,24 +101,20 @@ async function fetchModelsDev(): Promise<Map<string, ModelsDevModel>> {
 
 function getProxyCompat(id: string, name: string): ProviderModelConfig["compat"] | undefined {
   const text = `${id} ${name}`.toLowerCase();
+  const base = {
+    supportsStore: false,
+    supportsDeveloperRole: false,
+    supportsReasoningEffort: true,
+    requiresReasoningContentOnAssistantMessages: true,
+    supportsUsageInStreaming: false,
+    supportsLongCacheRetention: false,
+  } satisfies ProviderModelConfig["compat"];
+
   const isDeepSeek = text.includes("deepseek") || id.includes("qwen3.7") || id.includes("qwen3-7");
-  if (isDeepSeek) {
-    return {
-      supportsStore: false,
-      supportsDeveloperRole: false,
-      supportsReasoningEffort: true,
-      requiresReasoningContentOnAssistantMessages: true,
-      thinkingFormat: "deepseek",
-    };
-  }
-  if (text.includes("kimi") || text.includes("mimo") || text.includes("xiaomi")) {
-    return {
-      supportsStore: false,
-      supportsDeveloperRole: false,
-      supportsReasoningEffort: true,
-      requiresReasoningContentOnAssistantMessages: true,
-    };
-  }
+  if (isDeepSeek) return { ...base, thinkingFormat: "deepseek" as const };
+
+  if (text.includes("kimi") || text.includes("mimo") || text.includes("xiaomi")) return base;
+
   return undefined;
 }
 
@@ -158,8 +154,8 @@ async function fetchCrofModels(apiKey: string): Promise<ProviderModelConfig[]> {
         cacheRead: parseCrofPrice(m.pricing?.cache_prompt),
         cacheWrite: 0,
       },
-      contextWindow: m.context_length ?? 131072,
-      maxTokens: m.max_completion_tokens ?? 4096,
+      contextWindow: (m.context_length && m.context_length > 0) ? m.context_length : 128000,
+      maxTokens: (m.max_completion_tokens && m.max_completion_tokens > 0) ? m.max_completion_tokens : 16384,
       ...(compat ? { compat } : {}),
     };
   });
