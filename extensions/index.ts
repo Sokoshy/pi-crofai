@@ -1,13 +1,14 @@
 import { mkdir, readFile, writeFile } from "node:fs/promises";
 import { homedir } from "node:os";
 import { dirname, join } from "node:path";
-import type {
-  ExtensionAPI,
-  ExtensionCommandContext,
-  ProviderModelConfig,
+import {
+  CONFIG_DIR_NAME,
+  type ExtensionAPI,
+  type ExtensionCommandContext,
+  type ProviderModelConfig,
 } from "@earendil-works/pi-coding-agent";
 
-const CACHE_PATH = join(homedir(), ".pi", "crofai-models.json");
+const CACHE_PATH = join(homedir(), CONFIG_DIR_NAME, "crofai-models.json");
 const CACHE_TTL_MS = 24 * 60 * 60 * 1000;
 const MODELS_DEV_URL = "https://models.dev/api.json";
 
@@ -76,7 +77,8 @@ function thinkingMapFromModelsDev(model?: ModelsDevModel): ThinkingLevelMap | un
     low: values.has("low") ? "low" : null,
     medium: values.has("medium") ? "medium" : null,
     high: values.has("high") ? "high" : null,
-    xhigh: values.has("xhigh") ? "xhigh" : values.has("max") ? "max" : null,
+    xhigh: values.has("xhigh") ? "xhigh" : null,
+    max: values.has("max") ? "max" : null,
   };
 }
 
